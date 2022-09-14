@@ -12,27 +12,42 @@ import numpy as np
 import ply_io
 import pdal
 
-def tile_index(riproject):
 
-    tile_index = pd.DataFrame(columns=['tile', 'x', 'y'])
-    F = glob.glob(os.path.join(riproject, '*.ply')) + glob.glob(os.path.join(riproject, '*.pcd'))
+def tile_index(ply, args):
 
+    if args.verbose:
+        with args.Lock:
+            print(f'processing: {ply}')
 
-    for i, ply in tqdm(enumerate(F), total=len(F)):
-        T = int(os.path.split(ply)[1].split('.')[0])
-        reader = {"type":f"readers{os.path.splitext(ply)[1]}",
-                  "filename":ply}
-        stats =  {"type":"filters.stats",
-                  "dimensions":"X,Y"}
-        JSON = json.dumps([reader, stats])
-        pipeline = pdal.Pipeline(JSON)
-        pipeline.execute()
-        JSON = json.loads(pipeline.metadata)
-        X = JSON['metadata']['filters.stats']['statistic'][0]['average']
-        Y = JSON['metadata']['filters.stats']['statistic'][1]['average']
-        tile_index.loc[i, :] = [T, X, Y]   
-
-    tile_index.to_csv('tile_index.dat', index=False, header=False, sep=' ')
+    reader = {"type":f"readers{os.path.splitext(ply)[1]}",
+              "filename":ply}
+    stats =  {"type":"filters.stats",
+              "dimensions":"X,Y"}
+    JSON = json.dumps([reader, stats])
+    pipeline = pdal.Pipeline(JSON)
+    pipeline.execute()
+    JSON = json.loads(pipeline.metadata)
+    X = JSON['metadata']['filters.stats']['statistic'][0]['average']
+    Y = JSON['metadata']['filters.stats']['statistic'][1]['average']
+    T = int(os.path.split(ply)[1].split('.')[0])
+    
+    with args.Lock:
+        
+        with open(args.tile_index, 'a') as fh:
+            fh.write(f'{T} {X} {Y}\n')
 
 if __name__ == '__main__':
-    tile_index(sys.argv[1])
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-i','--idir', type=str, required=True, help='directory where tiles are stored')
+    parser.add_argument('-t','--tile-index', default='tile_index.dat', help='tile index file')
+    parser.add_argument('--num-prcs', type=int, default=10, help='number of cores to use')
+    parser.add_argument('--verbose', action='store_true', help='print something')
+    args = parser.parse_args()
+
+    m = multiprocessing.Manager()
+    args.Lock = m.Lock()
+    pool = multiprocessing.Pool(args.num_prcs)
+    pool.starmap_async(tile_index, [(ply, args) for ply in glob.glob(os.path.join(args.idir, '*.ply'))])
+    pool.close()
+    pool.join() 
