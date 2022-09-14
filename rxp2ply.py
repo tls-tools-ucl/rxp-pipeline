@@ -29,9 +29,9 @@ def tile_data(scan_pos, args):
             with args.Lock:
                 print('rxp -> xyz:', rxp)
     
-        fn_matrix = glob.glob(os.path.join(base, 'matrix', f'{scan.replace(".SCNPOS", "")}.*'))
+        fn_matrix = glob.glob(os.path.join(args.matrix_dir, f'{scan.replace(".SCNPOS", "")}.*'))
         if len(fn_matrix) == 0: 
-            if args.verbose: print('!!! Can not find rotation matrix', os.path.join(base, "matrix", scan.replace(".SCNPOS", "") + ".*"), '!!!')
+            if args.verbose: print('!!! Can not find rotation matrix', os.path.join(args.matrix_dir, scan.replace(".SCNPOS", "") + ".*"), '!!!')
             return
         matrix = np.dot(args.global_matrix, np.loadtxt(fn_matrix[0]))
         st_matrix = ' '.join(matrix.flatten().astype(str))
@@ -74,11 +74,12 @@ def tile_data(scan_pos, args):
         for arr in pipeline.arrays:
     
             arr = pd.DataFrame(arr)
-            arr.columns = ['x', 'y', 'z', 'InternalTime', 'ReturnNumber', 'NumberOfReturns',
-                           'amp', 'refl', 'EchoRange', 'dev', 'BackgroundRadiation', 
-                           'IsPpsLocked', 'EdgeOfFlightLine']
+            arr = arr.rename(columns={'X':'x', 'Y':'y', 'Z':'z'})
+            #arr.columns = ['x', 'y', 'z', 'InternalTime', 'ReturnNumber', 'NumberOfReturns',
+            #               'amp', 'refl', 'EchoRange', 'dev', 'BackgroundRadiation', 
+            #               'IsPpsLocked', 'EdgeOfFlightLine']
             arr.loc[:, 'sp'] = sp
-            arr = arr[['x', 'y', 'z', 'refl', 'dev', 'ReturnNumber', 'NumberOfReturns', 'sp']] # save only relevant fields
+            arr = arr[['x', 'y', 'z', 'Reflectance', 'Deviation', 'ReturnNumber', 'NumberOfReturns', 'sp']] # save only relevant fields
     
             # remove points outside bbox
             arr = arr.loc[(arr.x.between(args.bbox[0], args.bbox[1])) & 
@@ -120,6 +121,7 @@ if __name__ == '__main__':
     parser.add_argument('--num-prcs', type=int, default=10, help='number of cores to use')
     parser.add_argument('--prefix', type=str, default='ScanPos', help='file name prefix, deafult:ScanPos')
     parser.add_argument('--bbox', type=int, nargs=4, default=[], help='bounding box format xmin xmax  ymin  ymax')
+    parser.add_argument('--matrix-dir', '-m',  type=str, default='', help='path to rotation matrices')
     parser.add_argument('--global-matrix', type=str, default=False, help='path to global rotation matrix')
     parser.add_argument('--pos', default=[], nargs='*', help='process using specific scan positions')
     parser.add_argument('--test', action='store_true', help='test using the .mon.rxp')
@@ -127,8 +129,9 @@ if __name__ == '__main__':
     parser.add_argument('--print-bbox-only', action='store_true', help='print bounding box only')
 
     args = parser.parse_args()
-
-    args.matrix_dir = os.path.join(args.project, 'matrix')
+    
+    # find matrices
+    if len(args.matrix_dir) == 0: args.matrix_dir = os.path.join(args.project, 'matrix')
     if not os.path.isdir(args.matrix_dir): raise Exception(f'no such directory: {args.matrix_dir}')
     args.ScanPos = sorted(glob.glob(os.path.join(args.project, f'{args.prefix}*')))
     if args.plot_code != '': args.plot_code += '_'
