@@ -1,4 +1,6 @@
 #!/usr/bin/env python
+from datetime import datetime
+start = datetime.now()
 
 import pandas as pd
 import os, glob
@@ -44,3 +46,4 @@ if __name__ == "__main__":
     pool.close()
     pool.join() 
 
+    if args.verbose: print(f'runtime: {(datetime.now() - start).seconds}')
