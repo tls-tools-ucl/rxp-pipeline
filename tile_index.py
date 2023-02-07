@@ -26,7 +26,7 @@ def tile_index(ply, args):
     JSON = json.dumps([reader, stats])
     pipeline = pdal.Pipeline(JSON)
     pipeline.execute()
-    JSON = json.loads(pipeline.metadata)
+    JSON = pipeline.metadata
     X = JSON['metadata']['filters.stats']['statistic'][0]['average']
     Y = JSON['metadata']['filters.stats']['statistic'][1]['average']
     T = int(os.path.split(ply)[1].split('.')[0])
