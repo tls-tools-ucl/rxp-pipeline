@@ -1,3 +1,6 @@
+from datetime import datetime
+start = datetime.now()
+
 import sys
 import os
 import glob
@@ -7,13 +10,15 @@ import argparse
 
 import pandas as pd
 import numpy as np
+import geopandas as gp
+from shapely.geometry import Point
 
 import ply_io
 import pdal
 
 def tile_data(scan_pos, args):
 
-#    try:    
+    try:    
         base, scan = os.path.split(scan_pos)
         try:
             if args.test:
@@ -63,7 +68,6 @@ def tile_data(scan_pos, args):
                 "origin_y":"0"}
         cmds.append(tile)
 
-
         # link commmands and pass to pdal
         JSON = json.dumps(cmds)
 
@@ -80,22 +84,24 @@ def tile_data(scan_pos, args):
             #               'IsPpsLocked', 'EdgeOfFlightLine']
             arr.loc[:, 'sp'] = sp
             arr = arr[['x', 'y', 'z', 'Reflectance', 'Deviation', 'ReturnNumber', 'NumberOfReturns', 'sp']] # save only relevant fields
-    
+ 
             # remove points outside bbox
-            arr = arr.loc[(arr.x.between(args.bbox[0], args.bbox[1])) & 
-                          (arr.y.between(args.bbox[2], args.bbox[3]))]
+            arr = arr.loc[(arr.x.between(args.bbox[0], args.bbox[2])) & 
+                          (arr.y.between(args.bbox[1], args.bbox[3]))]
             if len(arr) == 0: continue
     
             # identify tile number
             X, Y = (arr[['x', 'y']].min() // args.tile * args.tile).astype(int)
             tile = args.tiles.loc[(args.tiles.x == X) & (args.tiles.y == Y)] 
-    
+            if len(tile) == 0: continue   
+ 
             # save to xyz file
             with args.Lock:
                 with open(os.path.join(args.odir, f'{args.plot_code}{tile.tile.item():03}.xyz'), 'ab') as fh: 
                     fh.write(arr.to_records(index=False).tobytes()) 
-#    except:
-#        print('!!!!', scan_pos, '!!!!') 
+
+    except:
+        print('!!!!', scan_pos, '!!!!') 
     
 def xyz2ply(xyz_path, args):
 
@@ -120,7 +126,8 @@ if __name__ == '__main__':
     parser.add_argument('--tile', type=float, default=10, help='length of tile')
     parser.add_argument('--num-prcs', type=int, default=10, help='number of cores to use')
     parser.add_argument('--prefix', type=str, default='ScanPos', help='file name prefix, deafult:ScanPos')
-    parser.add_argument('--bbox', type=int, nargs=4, default=[], help='bounding box format xmin xmax  ymin  ymax')
+    parser.add_argument('--bbox', type=int, nargs=4, default=[], help='bounding box format xmin ymin xmax ymax')
+    parser.add_argument('--bounding-geometry', type=str, default=False, help='a bounding geometry')
     parser.add_argument('--matrix-dir', '-m',  type=str, default='', help='path to rotation matrices')
     parser.add_argument('--global-matrix', type=str, default=False, help='path to global rotation matrix')
     parser.add_argument('--pos', default=[], nargs='*', help='process using specific scan positions')
@@ -129,6 +136,12 @@ if __name__ == '__main__':
     parser.add_argument('--print-bbox-only', action='store_true', help='print bounding box only')
 
     args = parser.parse_args()
+    args.project = os.path.abspath(args.project) 
+
+    # global rotation matrix
+    if args.global_matrix:
+        args.global_matrix = np.loadtxt(args.global_matrix)
+    else: args.global_matrix = np.identity(4)
     
     # find matrices
     if len(args.matrix_dir) == 0: args.matrix_dir = os.path.join(args.project, 'matrix')
@@ -144,29 +157,36 @@ if __name__ == '__main__':
     for i, m in enumerate(M):
         matrix_arr[i, :] = np.loadtxt(m)[:3, 3]
 
-    # bbox [xmin, xmax, ymin, ymax]
-    if len(args.bbox) == 0:
+    # bbox [xmin, ymin, xmax, ymax]
+    if args.bounding_geometry and len(args.bbox) > 0:
+        raise Exception('a bounding geometry and bounding box have been specified')
+    elif args.bounding_geometry:
+        all_mat = gp.read_file(args.bounding_geometry)
+        args.bbox = (all_mat.bounds.values[0] // args.tile) * args.tile
+    elif len(args.bbox) == 0:
         args.bbox = np.array([matrix_arr.min(axis=0)[:2] - args.tile,
                               matrix_arr.max(axis=0)[:2] + (args.tile * 2)]).T.flatten() // args.tile * args.tile
+        args.bbox = [args.bbox[0], args.bbox[2], args.bbox[1], args.bbox[3]]
     if args.verbose: print('bounding box:', args.bbox)
     if args.print_bbox_only: sys.exit()
 
-    # global rotation matrix
-    if args.global_matrix:
-        args.global_matrix = np.loadtxt(args.global_matrix)
-    else: args.global_matrix = np.identity(4)
-
     # create tile db
-    X, Y = np.meshgrid(np.arange(args.bbox[0], args.bbox[1] + args.tile, args.tile),
-                       np.arange(args.bbox[2], args.bbox[3] + args.tile, args.tile))
+    X, Y = np.meshgrid(np.arange(args.bbox[0], args.bbox[2] + args.tile, args.tile),
+                       np.arange(args.bbox[1], args.bbox[3] + args.tile, args.tile))
     args.tiles = pd.DataFrame(data=np.vstack([X.flatten(), Y.flatten()]).T.astype(int), columns=['x', 'y'])
-    #args.tiles.loc[:, 'tile'] = [os.path.abspath(os.path.join(args.rxp2ply_dir, f'{t:03}.ply')) for t in range(len(args.tiles))]
-    #args.tiles.loc[:, 'tile'] = [f'{n:03}' for n in range(len(args.tiles))]
+
+    if args.bounding_geometry:
+        geometry = [Point(r.x, r.y) for r in args.tiles.itertuples()]
+        args.tiles = gp.GeoDataFrame(args.tiles, geometry=geometry)
+        args.tiles = gp.sjoin(args.tiles, all_mat, how='inner')
+
     args.tiles.loc[:, 'tile'] = range(len(args.tiles))
+    args.tiles = pd.DataFrame(args.tiles[['x', 'y', 'tile']]).reset_index()
 
     if len(args.pos) > 0:
         if args.verbose: print('processing only:', args.pos)
-        args.ScanPos = [os.path.join(args.project, p) for p in args.pos]
+        args.ScanPos = args.pos
+        #args.ScanPos = [os.path.join(args.project, p) for p in args.pos]
 
     # read in and tile scans
     Pool = multiprocessing.Pool(args.num_prcs)
@@ -183,3 +203,5 @@ if __name__ == '__main__':
     # write tile index
     #args.tiles[['tile', 'x', 'y']].to_csv(os.path.join(args.odir, 'tile_index.dat'), 
     #                                      sep=' ', index=False, header=False)
+
+    print(f'runtime: {(datetime.now() - start).seconds}')
