@@ -94,6 +94,6 @@ Navigate back to `extraction`
 
 `python /path/to/rxp-pipeline/tile_index.py downsample` where `downsample` is the directory with downsampled tiles.
 
-#### 4. Run FSCT
+#### 4. Run TLS2trees
 
 Instructions on this are [here](https://github.com/philwilkes/FSCT).
