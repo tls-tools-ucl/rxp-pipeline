@@ -13,7 +13,8 @@ args = parser.parse_args()
 
 df = gp.GeoDataFrame(columns=['x', 'y', 'z'])
 
-for i, dat in enumerate(glob.glob(os.path.join(args.mdir, '*.dat'))):
+for i, dat in enumerate(glob.glob(os.path.join(args.mdir, '*.dat')) + 
+                        glob.glob(os.path.join(args.mdir, '*.DAT'))):
     df.loc[i, :] = np.loadtxt(dat)[:3, 3]
 
 geometry = [Point(r.x, r.y) for r in df.itertuples()]
