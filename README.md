@@ -33,7 +33,7 @@ File structure should be as below where `ScanPos001`, `ScanPos002`, ... `ScanPos
 
 _Before installing PDAL you could instead:_ `conda activate /home/ucfaptv/opt/miniconda/envs/pdal-python`
 
-1.  Create a conda environment using `conda create -n pdal -c conda-forge gdal ninja cmake cxx-compiler laszip pdal python-pdal pandas`
+1.  Create a conda environment using `conda create -n pdal -c conda-forge gdal ninja cmake cxx-compiler laszip pdal python-pdal pandas geopandas`
     
 2.  Download the [PDAL current release](https://pdal.io/download.html#current-release-s).
     
@@ -94,6 +94,6 @@ Navigate back to `extraction`
 
 `python /path/to/rxp-pipeline/tile_index.py downsample` where `downsample` is the directory with downsampled tiles.
 
-#### 4. Run FSCT
+#### 4. Run TLS2trees
 
 Instructions on this are [here](https://github.com/philwilkes/FSCT).
