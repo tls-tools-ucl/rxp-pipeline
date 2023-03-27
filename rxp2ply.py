@@ -22,9 +22,9 @@ def tile_data(scan_pos, args):
         base, scan = os.path.split(scan_pos)
         try:
             if args.test:
-                rxp = glob.glob(os.path.join(base, scan, '??????_??????.mon.rxp'))[0]
+                rxp = glob.glob(os.path.join(base, scan, '??????_??????.mon.rxp'))[-1]
             else:
-                rxp = glob.glob(os.path.join(base, scan, 'scans' if base.endswith('.PROJ') else '', '??????_??????.rxp'))[0]
+                rxp = glob.glob(os.path.join(base, scan, 'scans' if base.endswith('.PROJ') else '', '??????_??????.rxp'))[-1]
         except:
             if args.verbose: print(f"!!! Can't find {os.path.join(base, scan, '??????_??????.rxp')} !!!")
             return
@@ -97,28 +97,46 @@ def tile_data(scan_pos, args):
  
             # save to xyz file
             with args.Lock:
-                with open(os.path.join(args.odir, f'{args.plot_code}{tile.tile.item():03}.xyz'), 'ab') as fh: 
+                with open(os.path.join(args.odir, f'{args.plot_code}{tile.tile.item():03}.{sp}.xyz'), 'ab') as fh: 
                     fh.write(arr.to_records(index=False).tobytes()) 
 
     except:
         print('!!!!', scan_pos, '!!!!') 
     
-def xyz2ply(xyz_path, args):
+def xyz2ply(xyz, args):
 
     if args.verbose:
         with args.Lock:
-            print('xyz -> ply:', xyz_path)
-    
-    open_file = open(xyz_path, encoding='ISO-8859-1')
-    tmp = pd.DataFrame(np.fromfile(open_file, dtype='float64,float64,float64,float32,float32,uint8,uint8,int64'))
-    tmp.columns = ['x', 'y', 'z', 'refl', 'dev', 'ReturnNumber', 'NumberOfReturns', 'sp']
-    ply_io.write_ply(xyz_path.replace('.xyz', '.ply'), tmp)
-    os.unlink(xyz_path)
+            print(f'xyz -> ply: {xyz:03}')
+
+    tmp = pd.DataFrame()
+
+    for fn in glob.glob(f'{xyz:03}.*.xyz'):    
+        open_file = open(fn, encoding='ISO-8859-1')
+        tmp = pd.concat([tmp, pd.DataFrame(np.fromfile(open_file, dtype='float64,float64,float64,float32,float32,uint8,uint8,int64'))])
+        os.unlink(fn)
+
+    if len(tmp) > 0:
+        tmp.columns = ['x', 'y', 'z', 'refl', 'dev', 'ReturnNumber', 'NumberOfReturns', 'sp']
+        ply_io.write_ply(f'{xyz:03}.ply', tmp)
+
+#def xyz2ply(xyz_path, args):
+#
+#    if args.verbose:
+#        with args.Lock:
+#            print('xyz -> ply:', xyz_path)
+#    
+#    open_file = open(xyz_path, encoding='ISO-8859-1')
+#    tmp = pd.DataFrame(np.fromfile(open_file, dtype='float64,float64,float64,float32,float32,uint8,uint8,int64'))
+#    tmp.columns = ['x', 'y', 'z', 'refl', 'dev', 'ReturnNumber', 'NumberOfReturns', 'sp']
+#    ply_io.write_ply(xyz_path.replace('.xyz', '.ply'), tmp)
+#    os.unlink(xyz_path)
     
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--project', '-p', required=True, type=str, help='path to point cloud')
+    parser.add_argument('--matrix-dir', '-m',  type=str, default='', help='path to rotation matrices')
     parser.add_argument('--plot-code', type=str, default='', help='plot suffix')
     parser.add_argument('--odir', type=str, default='.', help='output directory')
     parser.add_argument('--deviation', type=float, default=15, help='deviation filter')
@@ -128,7 +146,6 @@ if __name__ == '__main__':
     parser.add_argument('--prefix', type=str, default='ScanPos', help='file name prefix, deafult:ScanPos')
     parser.add_argument('--bbox', type=int, nargs=4, default=[], help='bounding box format xmin ymin xmax ymax')
     parser.add_argument('--bounding-geometry', type=str, default=False, help='a bounding geometry')
-    parser.add_argument('--matrix-dir', '-m',  type=str, default='', help='path to rotation matrices')
     parser.add_argument('--global-matrix', type=str, default=False, help='path to global rotation matrix')
     parser.add_argument('--pos', default=[], nargs='*', help='process using specific scan positions')
     parser.add_argument('--test', action='store_true', help='test using the .mon.rxp')
@@ -197,6 +214,8 @@ if __name__ == '__main__':
     # write to ply - reusing Pool
     xyz = glob.glob(os.path.join(args.odir, '*.xyz'))
     Pool.starmap_async(xyz2ply, [(xyz, args) for xyz in np.sort(xyz)])
+    #[xyz2ply(xyz, args) for xyz in np.sort(args.tiles.tile)]
+    #Pool.starmap_async(xyz2ply, [(xyz, args) for xyz in np.sort(args.tiles.tile)])
     Pool.close()
     Pool.join()
 
