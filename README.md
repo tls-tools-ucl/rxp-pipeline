@@ -44,10 +44,13 @@ _Before installing PDAL you could instead:_ `conda activate /home/ucfaptv/opt/mi
         $ tar -xf PDAL-2.3.0-src.tar.gz
         
 
-3.  Download the `rivlib-2_5_10-x86_64-linux-gcc9.zip` from the memebers area of the RIEGL website (make sure to get the gcc9 version). Unzip and add an environmental variable to point at the directory `export RiVLib_DIR=/path/to/rivlib-2_5_10-x86_64-linux-gcc9`
+3.  Download the `rivlib-2_5_10-x86_64-linux-gcc9.zip` (make sure to get the gcc9 version) and the the `rdblib-2.4.0-x86_64-linux.tar.gz` from the memebers area of the RIEGL website. 
+    - Unzip `rivlib-2_5_10-x86_64-linux-gcc9.zip` and add an environmental variable to point at the directory `export RiVLib_DIR=/path/to/rivlib-2_5_10-x86_64-linux-gcc9`. 
+    - Untar `rdblib-2.4.0-x86_64-linux.tar.gz` and add an environmental variable to point at the directory `export rdb_DIR=/path/to/rdblib-2.4.0-x86_64-linux/interface/cpp`
 
 4.  Before running cmake
-    - edit line 63 of `cmake/options.cmake` to `"Choose if RiVLib support should be built" True)`
+    - edit line 58 of `cmake/options.cmake` to `"Choose if RiVLib support should be built" True)`
+    - edit line 63 of `cmake/options.cmake` to `"Choose if rdblib support should be builtl" True)`
     - edit line 56 of `plugins/rxp/io/RxpReader.hpp` to `const bool DEFAULT_SYNC_TO_PPS = false;`
 
     Then, follow the [PDAL Unix Compilation](https://pdal.io/development/compilation/unix.html) notes to compile PDAL. Example commands in Linux:
@@ -62,7 +65,7 @@ _Before installing PDAL you could instead:_ `conda activate /home/ucfaptv/opt/mi
         
     Next, add the this bin path to the environmental variable $PATH `export PATH=/path/to/PDAL-2.3.0-src/build/bin:$PATH`
 
-5. Copy `build/lib/libpdal_plugin_reader_rxp.so` to `/path/to/.conda/envs/pdal/lib/.`, this is required to open .rxp in Python.
+5. `cp build/lib/libpdal_plugin_reader_*.so /path/to/.conda/envs/pdal/lib/.`, this is required to open `.rxp`  and `.rdbx` in Python.
 
 ### Processing data
 
