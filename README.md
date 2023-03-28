@@ -50,7 +50,7 @@ _Before installing PDAL you could instead:_ `conda activate /home/ucfaptv/opt/mi
 
 4.  Before running cmake
     - edit line 58 of `cmake/options.cmake` to `"Choose if RiVLib support should be built" True)`
-    - edit line 63 of `cmake/options.cmake` to `"Choose if rdblib support should be builtl" True)`
+    - edit line 63 of `cmake/options.cmake` to `"Choose if rdblib support should be built" True)`
     - edit line 56 of `plugins/rxp/io/RxpReader.hpp` to `const bool DEFAULT_SYNC_TO_PPS = false;`
 
     Then, follow the [PDAL Unix Compilation](https://pdal.io/development/compilation/unix.html) notes to compile PDAL. Example commands in Linux:
