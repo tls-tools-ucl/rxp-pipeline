@@ -22,9 +22,9 @@ def tile_data(scan_pos, args):
         base, scan = os.path.split(scan_pos)
         try:
             if args.test:
-                rxp = sorted(glob.glob(os.path.join(base, scan, '??????_??????.mon.rxp'))[-1])
+                rxp = sorted(glob.glob(os.path.join(base, scan, '??????_??????.mon.rxp')))[-1]
             else:
-                rxp = sorted(glob.glob(os.path.join(base, scan, 'scans' if 'SCNPOS' in scan else '', '??????_??????.rxp'))[-1])
+                rxp = sorted(glob.glob(os.path.join(base, scan, 'scans' if 'SCNPOS' in scan else '', '??????_??????.rxp')))[-1]
         except:
             if args.verbose: print(f"!!! Can't find {os.path.join(base, scan, '??????_??????.rxp')} !!!")
             return
