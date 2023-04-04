@@ -24,7 +24,7 @@ def tile_data(scan_pos, args):
             if args.test:
                 rxp = glob.glob(os.path.join(base, scan, '??????_??????.mon.rxp'))[-1]
             else:
-                rxp = glob.glob(os.path.join(base, scan, 'scans' if base.endswith('.PROJ') else '', '??????_??????.rxp'))[-1]
+                rxp = glob.glob(os.path.join(base, scan, 'scans' if 'SCNPOS' in scan else '', '??????_??????.rxp'))[-1]
         except:
             if args.verbose: print(f"!!! Can't find {os.path.join(base, scan, '??????_??????.rxp')} !!!")
             return
@@ -206,6 +206,7 @@ if __name__ == '__main__':
     args.tiles = pd.DataFrame(args.tiles[['x', 'y', 'tile']]).reset_index()
 
     if len(args.pos) > 0:
+        args.pos = [os.path.abspath(p[:-1]) if p.endswith(os.pathsep) else os.path.abspath(p) for p in args.pos]
         if args.verbose: print('processing only:', args.pos)
         args.ScanPos =  list(args.pos) if len(args.pos) == 1 else args.pos
         #args.ScanPos = [os.path.join(args.project, p) for p in args.pos]
