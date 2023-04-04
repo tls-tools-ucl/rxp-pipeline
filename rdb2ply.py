@@ -21,7 +21,7 @@ def tile_data(scan_pos, args):
 #    try:    
         base, scan = os.path.split(scan_pos)
         try:
-            rdb = sorted(glob.glob(os.path.join(base, scan, 'scans', '??????_??????.rdbx'))[-1])
+            rdb = sorted(glob.glob(os.path.join(base, scan, 'scans', '??????_??????.rdbx')))[-1]
         except:
             if args.verbose: print(f"!!! Can't find {os.path.join(base, scan, 'scans', '??????_??????.rdbx')} !!!")
             return
@@ -197,9 +197,9 @@ if __name__ == '__main__':
     args.tiles = pd.DataFrame(args.tiles[['x', 'y', 'tile']]).reset_index()
 
     if len(args.pos) > 0:
+        args.pos = [os.path.abspath(p[:-1]) if p.endswith(os.pathsep) else os.path.abspath(p) for p in args.pos]
         if args.verbose: print('processing only:', args.pos)
         args.ScanPos =  list(args.pos) if len(args.pos) == 1 else args.pos
-        #args.ScanPos = [os.path.join(args.project, p) for p in args.pos]
 
     # read in and tile scans
     Pool = multiprocessing.Pool(args.num_prcs)
