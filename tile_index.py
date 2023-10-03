@@ -39,7 +39,7 @@ def tile_index(ply, args):
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('-i','--idir', type=str, required=True, help='directory where tiles are stored')
+    parser.add_argument('-i','--pc', type=str, nargs='*', required=True, help='input tiles')
     parser.add_argument('-t','--tile-index', default='tile_index.dat', help='tile index file')
     parser.add_argument('--num-prcs', type=int, default=10, help='number of cores to use')
     parser.add_argument('--verbose', action='store_true', help='print something')
@@ -48,6 +48,6 @@ if __name__ == '__main__':
     m = multiprocessing.Manager()
     args.Lock = m.Lock()
     pool = multiprocessing.Pool(args.num_prcs)
-    pool.starmap_async(tile_index, [(ply, args) for ply in glob.glob(os.path.join(args.idir, '*.ply'))])
+    pool.starmap_async(tile_index, [(ply, args) for ply in args.pc])
     pool.close()
     pool.join() 
