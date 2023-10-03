@@ -22,7 +22,7 @@ def tile_data(scan_pos, args):
         base, scan = os.path.split(scan_pos)
         try:
             if args.test:
-                rxp = sorted(glob.glob(os.path.join(base, scan, '??????_??????.mon.rxp')))[-1]
+                rxp = sorted(glob.glob(os.path.join(base, scan, 'scans' if 'SCNPOS' in scan else '', '??????_??????.mon.rxp')))[-1]
             else:
                 rxp = sorted(glob.glob(os.path.join(base, scan, 'scans' if 'SCNPOS' in scan else '', '??????_??????.rxp')))[-1]
         except:
@@ -94,14 +94,15 @@ def tile_data(scan_pos, args):
             X, Y = (arr[['x', 'y']].min() // args.tile * args.tile).astype(int)
             tile = args.tiles.loc[(args.tiles.x == X) & (args.tiles.y == Y)] 
             if len(tile) == 0: continue   
+            tile_n = str(tile.tile.item()).zfill(args.n)
  
             # save to xyz file
             with args.Lock:
                 if args.store_tmp_with_sp:
-                    with open(os.path.join(args.odir, f'{args.plot_code}{tile.tile.item():03}.{sp}.xyz'), 'ab') as fh: 
+                    with open(os.path.join(args.odir, f'{args.plot_code}{tile_n}.{sp}.xyz'), 'ab') as fh: 
                         fh.write(arr.to_records(index=False).tobytes()) 
                 else:
-                    with open(os.path.join(args.odir, f'{args.plot_code}{tile.tile.item():03}.xyz'), 'ab') as fh: 
+                    with open(os.path.join(args.odir, f'{args.plot_code}{tile_n}.xyz'), 'ab') as fh: 
                         fh.write(arr.to_records(index=False).tobytes()) 
 
     except:
@@ -109,20 +110,22 @@ def tile_data(scan_pos, args):
     
 def xyz2ply_w_sp(xyz, args):
 
+    xyz = str(xyz).zfill(args.n)
+
     if args.verbose:
         with args.Lock:
-            print(f'xyz -> ply: {xyz:03}')
+            print(f'xyz -> ply: {xyz}')
 
     tmp = pd.DataFrame()
 
-    for fn in glob.glob(f'{xyz:03}.*.xyz'):    
+    for fn in glob.glob(f'{xyz}.*.xyz'):    
         open_file = open(fn, encoding='ISO-8859-1')
         tmp = pd.concat([tmp, pd.DataFrame(np.fromfile(open_file, dtype='float64,float64,float64,float32,float32,uint8,uint8,int64'))])
         os.unlink(fn)
 
     if len(tmp) > 0:
         tmp.columns = ['x', 'y', 'z', 'refl', 'dev', 'ReturnNumber', 'NumberOfReturns', 'sp']
-        ply_io.write_ply(f'{xyz:03}.ply', tmp)
+        ply_io.write_ply(f'{xyz}.ply', tmp)
 
 def xyz2ply(xyz_path, args):
 
@@ -204,6 +207,7 @@ if __name__ == '__main__':
 
     args.tiles.loc[:, 'tile'] = range(len(args.tiles))
     args.tiles = pd.DataFrame(args.tiles[['x', 'y', 'tile']]).reset_index()
+    args.n = len(str(len(args.tiles)))
 
     if len(args.pos) > 0:
         args.pos = [os.path.abspath(p[:-1]) if p.endswith(os.pathsep) else os.path.abspath(p) for p in args.pos]
@@ -215,6 +219,7 @@ if __name__ == '__main__':
     Pool = multiprocessing.Pool(args.num_prcs)
     m = multiprocessing.Manager()
     args.Lock = m.Lock()
+    #[tile_data(sp, args) for sp in np.sort(args.ScanPos)]
     Pool.starmap(tile_data, [(sp, args) for sp in np.sort(args.ScanPos)])
 
     # write to ply - reusing Pool
@@ -231,4 +236,4 @@ if __name__ == '__main__':
     #args.tiles[['tile', 'x', 'y']].to_csv(os.path.join(args.odir, 'tile_index.dat'), 
     #                                      sep=' ', index=False, header=False)
 
-    print(f'runtime: {(datetime.now() - start).seconds}')
+#    print(f'runtime: {(datetime.now() - start).seconds}')
