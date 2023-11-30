@@ -151,14 +151,17 @@ if __name__ == '__main__':
     parser.add_argument('--tile', type=float, default=10, help='length of tile')
     parser.add_argument('--num-prcs', type=int, default=10, help='number of cores to use')
     parser.add_argument('--prefix', type=str, default='ScanPos', help='file name prefix, deafult:ScanPos')
+    parser.add_argument('--buffer', type=float, default=10., help='size of buffer')
     parser.add_argument('--bbox', type=int, nargs=4, default=[], help='bounding box format xmin ymin xmax ymax')
+    parser.add_argument('--bbox-only', action='store_true', help='generate bounding box only, do not process tiles')
     parser.add_argument('--bounding-geometry', type=str, default=False, help='a bounding geometry')
+    parser.add_argument('--rotate-bbox', action='store_true', help='rotate bounding geometry to best fit scan positions')
+    parser.add_argument('--save-bounding-geometry', type=str, default=False, help='file where to save bounding geometry')
     parser.add_argument('--global-matrix', type=str, default=False, help='path to global rotation matrix')
     parser.add_argument('--pos', default=[], nargs='*', help='process using specific scan positions')
     parser.add_argument('--test', action='store_true', help='test using the .mon.rxp')
     parser.add_argument('--store-tmp-with-sp', action='store_true', help='spits out individual tmp files for tiles _and_ scan position')
     parser.add_argument('--verbose', action='store_true', help='print something')
-    parser.add_argument('--print-bbox-only', action='store_true', help='print bounding box only')
 
     args = parser.parse_args()
     args.project = os.path.abspath(args.project) 
@@ -168,13 +171,14 @@ if __name__ == '__main__':
         args.global_matrix = np.loadtxt(args.global_matrix)
     else: args.global_matrix = np.identity(4)
     
-    # find matrices
-    if len(args.matrix_dir) == 0: args.matrix_dir = os.path.join(args.project, 'matrix')
-    if not os.path.isdir(args.matrix_dir): raise Exception(f'no such directory: {args.matrix_dir}')
+    # find scans
     args.ScanPos = sorted(glob.glob(os.path.join(args.project, f'{args.prefix}*')))
+    if len(args.ScanPos) == 0: raise Exception('no scan positions found')
     if args.plot_code != '': args.plot_code += '_'
 
-    # generate bounding box from matrix
+    # find and read rotation matrix
+    if not os.path.isdir(args.matrix_dir): 
+        raise Exception(f'no such directory: {args.matrix_dir}')
     M = glob.glob(os.path.join(args.matrix_dir, f'{args.prefix}*.*'))
     if len(M) == 0:
         raise Exception('no matrix files found, ensure they are named correctly')
@@ -185,28 +189,38 @@ if __name__ == '__main__':
     # bbox [xmin, ymin, xmax, ymax]
     if args.bounding_geometry and len(args.bbox) > 0:
         raise Exception('a bounding geometry and bounding box have been specified')
+    if args.bbox:
+        geometry = Polygon(((args.bbox[0], args.bbox[1]), (args.bbox[0], args.bbox[3]), 
+                            (args.bbox[2], args.bbox[3]), (args.bbox[2], args.bbox[1]), 
+                            (args.bbox[0], args.bbox[1])))
+        extent = gp.GeoDataFrame([0], geometry=[geometry], columns=['id'])
     elif args.bounding_geometry:
-        all_mat = gp.read_file(args.bounding_geometry)
-        args.bbox = (all_mat.bounds.values[0] // args.tile) * args.tile
-    elif len(args.bbox) == 0:
-        args.bbox = np.array([matrix_arr.min(axis=0)[:2] - args.tile,
-                              matrix_arr.max(axis=0)[:2] + (args.tile * 2)]).T.flatten() // args.tile * args.tile
-        args.bbox = [args.bbox[0], args.bbox[2], args.bbox[1], args.bbox[3]]
+        extent = gp.read_file(args.bounding_geometry)#.buffer(args.buffer, join_style='mitre')
+    elif args.rotate_bbox:
+        extent = gp.GeoDataFrame(data=np.arange(len(matrix_arr)), 
+                                 geometry=[Point(r[0], r[1]) for r in matrix_arr])
+        extent = gp.GeoDataFrame([0], columns=['id'], 
+                                 geometry=[extent.unary_union.minimum_rotated_rectangle.buffer(args.tile + args.buffer, join_style='mitre')])
+    else:
+        extent = gp.GeoDataFrame(data=np.arange(len(matrix_arr)), 
+                                 geometry=[Point(r[0], r[1]) for r in matrix_arr])
+        extent = gp.GeoDataFrame([0], columns=['id'], 
+                                 geometry=[extent.unary_union.envelope.buffer(args.tile + args.buffer, join_style='mitre')])
+    args.bbox = (extent.exterior.bounds.values[0] // args.tile) * args.tile
     if args.verbose: print('bounding box:', args.bbox)
-    if args.print_bbox_only: sys.exit()
-
+    if args.save_bounding_geometry: 
+        extent.to_file(args.save_bounding_geometry)
+        if args.verbose: print(f'bounding geometry saved to {args.save_bounding_geometry}') 
+    
     # create tile db
-    X, Y = np.meshgrid(np.arange(args.bbox[0], args.bbox[2] + args.tile, args.tile),
-                       np.arange(args.bbox[1], args.bbox[3] + args.tile, args.tile))
-    args.tiles = pd.DataFrame(data=np.vstack([X.flatten(), Y.flatten()]).T.astype(int), columns=['x', 'y'])
-
-    if args.bounding_geometry:
-        geometry = [Point(r.x, r.y) for r in args.tiles.itertuples()]
-        args.tiles = gp.GeoDataFrame(args.tiles, geometry=geometry)
-        args.tiles = gp.sjoin(args.tiles, all_mat, how='inner')
-
+    X, Y = np.meshgrid(np.arange(args.bbox[0], args.bbox[2], args.tile),
+                       np.arange(args.bbox[1], args.bbox[3], args.tile))
+    XY = np.vstack([X.flatten(), Y.flatten()]).T.astype(int)
+    args.tiles = gp.GeoDataFrame(data=XY, columns=['x', 'y'], geometry=[Point(r[0], r[1]) for r in XY])
+    args.tiles = gp.sjoin(args.tiles, extent, how='inner')
+    
     args.tiles.loc[:, 'tile'] = range(len(args.tiles))
-    args.tiles = pd.DataFrame(args.tiles[['x', 'y', 'tile']]).reset_index()
+    args.tiles = args.tiles[['x', 'y', 'tile', 'geometry']]
     args.n = len(str(len(args.tiles)))
 
     if len(args.pos) > 0:
@@ -214,6 +228,8 @@ if __name__ == '__main__':
         if args.verbose: print('processing only:', args.pos)
         args.ScanPos =  list(args.pos) if len(args.pos) == 1 else args.pos
         #args.ScanPos = [os.path.join(args.project, p) for p in args.pos]
+
+    if args.bbox_only: sys.exit()
 
     # read in and tile scans
     Pool = multiprocessing.Pool(args.num_prcs)
@@ -236,4 +252,4 @@ if __name__ == '__main__':
     #args.tiles[['tile', 'x', 'y']].to_csv(os.path.join(args.odir, 'tile_index.dat'), 
     #                                      sep=' ', index=False, header=False)
 
-#    print(f'runtime: {(datetime.now() - start).seconds}')
+    print(f'runtime: {(datetime.now() - start).seconds}')
