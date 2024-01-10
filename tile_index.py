@@ -22,19 +22,21 @@ def tile_index(ply, args):
     reader = {"type":f"readers{os.path.splitext(ply)[1]}",
               "filename":ply}
     stats =  {"type":"filters.stats",
-              "dimensions":"X,Y"}
+              "dimensions":"X,Y,Z"}
     JSON = json.dumps([reader, stats])
     pipeline = pdal.Pipeline(JSON)
     pipeline.execute()
     JSON = pipeline.metadata
     X = JSON['metadata']['filters.stats']['statistic'][0]['average']
     Y = JSON['metadata']['filters.stats']['statistic'][1]['average']
-    T = int(os.path.split(ply)[1].split('.')[0])
+    Z = JSON['metadata']['filters.stats']['statistic'][2]['minimum']
+    T = os.path.split(ply)[1].split('.')[0]
+    P = os.path.abspath(ply)
     
     with args.Lock:
         
         with open(args.tile_index, 'a') as fh:
-            fh.write(f'{T} {X} {Y}\n')
+            fh.write(f'{T} {X} {Y} {Z} {P}\n')
 
 if __name__ == '__main__':
 
