@@ -93,7 +93,7 @@ This downsamples the data to a uniform density
 
 Navigate back to `extraction`
 
-`python /path/to/rxp-pipeline/tile_index.py -i downsample` where `downsample` is the directory with downsampled tiles.
+`python /path/to/rxp-pipeline/tile_index.py -i downsample/*.ply`.
 
 #### 4. Run TLS2trees
 
