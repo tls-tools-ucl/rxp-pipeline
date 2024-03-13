@@ -155,6 +155,7 @@ if __name__ == '__main__':
     parser.add_argument('--bbox', type=int, nargs=4, default=[], help='bounding box format xmin ymin xmax ymax')
     parser.add_argument('--bbox-only', action='store_true', help='generate bounding box only, do not process tiles')
     parser.add_argument('--bounding-geometry', type=str, default=False, help='a bounding geometry')
+    parser.add_argument('--convex-hull', action='store_true', help='fits a convex hull geometry around scan positions')
     parser.add_argument('--rotate-bbox', action='store_true', help='rotate bounding geometry to best fit scan positions')
     parser.add_argument('--save-bounding-geometry', type=str, default=False, help='file where to save bounding geometry')
     parser.add_argument('--global-matrix', type=str, default=False, help='path to global rotation matrix')
@@ -201,6 +202,11 @@ if __name__ == '__main__':
                                  geometry=[Point(r[0], r[1]) for r in matrix_arr])
         extent = gp.GeoDataFrame([0], columns=['id'], 
                                  geometry=[extent.unary_union.minimum_rotated_rectangle.buffer(args.tile + args.buffer, join_style='mitre')])
+    elif args.convex_hull:
+        extent = gp.GeoDataFrame(data=np.arange(len(matrix_arr)),
+                                 geometry=[Point(r[0], r[1]) for r in matrix_arr])
+        extent = gp.GeoDataFrame([0], columns=['id'],
+                                 geometry=[extent.unary_union.convex_hull.buffer(args.tile + args.buffer)])
     else:
         extent = gp.GeoDataFrame(data=np.arange(len(matrix_arr)), 
                                  geometry=[Point(r[0], r[1]) for r in matrix_arr])
@@ -221,7 +227,7 @@ if __name__ == '__main__':
     
     args.tiles.loc[:, 'tile'] = range(len(args.tiles))
     args.tiles = args.tiles[['x', 'y', 'tile', 'geometry']]
-    args.n = len(str(len(args.tiles)))
+    args.n = 4 #len(str(len(args.tiles)))
 
     if len(args.pos) > 0:
         args.pos = [os.path.abspath(p[:-1]) if p.endswith(os.pathsep) else os.path.abspath(p) for p in args.pos]
@@ -229,6 +235,9 @@ if __name__ == '__main__':
         args.ScanPos =  list(args.pos) if len(args.pos) == 1 else args.pos
         #args.ScanPos = [os.path.join(args.project, p) for p in args.pos]
 
+    # write tile index
+    args.tiles[['tile', 'x', 'y']].to_csv(os.path.join(args.odir, 'tile_index.dat'), 
+                                          sep=' ', index=False, header=False)
     if args.bbox_only: sys.exit()
 
     # read in and tile scans
@@ -248,8 +257,5 @@ if __name__ == '__main__':
     Pool.close()
     Pool.join()
 
-    # write tile index
-    #args.tiles[['tile', 'x', 'y']].to_csv(os.path.join(args.odir, 'tile_index.dat'), 
-    #                                      sep=' ', index=False, header=False)
 
     print(f'runtime: {(datetime.now() - start).seconds}')
