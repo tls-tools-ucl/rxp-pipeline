@@ -4,6 +4,7 @@ start = datetime.now()
 import sys
 import os
 import glob
+import random
 import multiprocessing
 import json
 import argparse
@@ -245,7 +246,7 @@ if __name__ == '__main__':
     m = multiprocessing.Manager()
     args.Lock = m.Lock()
     #[tile_data(sp, args) for sp in np.sort(args.ScanPos)]
-    Pool.starmap(tile_data, [(sp, args) for sp in np.sort(args.ScanPos)])
+    Pool.starmap(tile_data, [(sp, args) for sp in random.sample(args.ScanPos, len(args.ScanPos))])
 
     # write to ply - reusing Pool
     if args.store_tmp_with_sp:
