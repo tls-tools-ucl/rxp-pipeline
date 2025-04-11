@@ -1,5 +1,7 @@
 # rxp-pipeline
 
+[![DOI](https://zenodo.org/badge/632593854.svg)](https://doi.org/10.5281/zenodo.15196450)
+
 Methods used by UCL Geography to preprocess registered .rxp data to allow further processing. The pipeline uses PDAL and requires installation of the Python bindings.
 
 ### File structure
