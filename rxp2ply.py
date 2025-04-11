@@ -159,6 +159,7 @@ if __name__ == '__main__':
     parser.add_argument('--convex-hull', action='store_true', help='fits a convex hull geometry around scan positions')
     parser.add_argument('--rotate-bbox', action='store_true', help='rotate bounding geometry to best fit scan positions')
     parser.add_argument('--save-bounding-geometry', type=str, default=False, help='file where to save bounding geometry')
+    parser.add_argument('--save-scan-positions', type=str, default=False, help='file where to save scan positions')
     parser.add_argument('--global-matrix', type=str, default=False, help='path to global rotation matrix')
     parser.add_argument('--pos', default=[], nargs='*', help='process using specific scan positions')
     parser.add_argument('--test', action='store_true', help='test using the .mon.rxp')
@@ -167,6 +168,8 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     args.project = os.path.abspath(args.project) 
+
+    if args.buffer == 0: args.buffer = False
 
     # global rotation matrix
     if args.global_matrix:
@@ -184,41 +187,39 @@ if __name__ == '__main__':
     M = glob.glob(os.path.join(args.matrix_dir, f'{args.prefix}*.*'))
     if len(M) == 0:
         raise Exception('no matrix files found, ensure they are named correctly')
-    matrix_arr = np.zeros((len(M), 3))
+    xyz = np.zeros((len(M), 3))
     for i, m in enumerate(M):
-        matrix_arr[i, :] = np.loadtxt(m)[:3, 3]
+        xyz[i, :] = np.loadtxt(m)[:3, 3]
+    
+    geometry = [Point(r[0], r[1], r[2]) for r in xyz]
+    xyz = gp.GeoDataFrame(data=xyz, columns=['x', 'y', 'z'], geometry=geometry)
 
     # bbox [xmin, ymin, xmax, ymax]
     if args.bounding_geometry and len(args.bbox) > 0:
         raise Exception('a bounding geometry and bounding box have been specified')
     if args.bbox:
-        geometry = Polygon(((args.bbox[0], args.bbox[1]), (args.bbox[0], args.bbox[3]), 
-                            (args.bbox[2], args.bbox[3]), (args.bbox[2], args.bbox[1]), 
+        geometry = Polygon(((args.bbox[0], args.bbox[1]), (args.bbox[0], args.bbox[3]),
+                            (args.bbox[2], args.bbox[3]), (args.bbox[2], args.bbox[1]),
                             (args.bbox[0], args.bbox[1])))
         extent = gp.GeoDataFrame([0], geometry=[geometry], columns=['id'])
     elif args.bounding_geometry:
         extent = gp.read_file(args.bounding_geometry)#.buffer(args.buffer, join_style='mitre')
     elif args.rotate_bbox:
-        extent = gp.GeoDataFrame(data=np.arange(len(matrix_arr)), 
-                                 geometry=[Point(r[0], r[1]) for r in matrix_arr])
-        extent = gp.GeoDataFrame([0], columns=['id'], 
-                                 geometry=[extent.unary_union.minimum_rotated_rectangle.buffer(args.tile + args.buffer, join_style='mitre')])
+        extent = gp.GeoDataFrame([0], columns=['id'], geometry=[xyz.unary_union.minimum_rotated_rectangle])
     elif args.convex_hull:
-        extent = gp.GeoDataFrame(data=np.arange(len(matrix_arr)),
-                                 geometry=[Point(r[0], r[1]) for r in matrix_arr])
-        extent = gp.GeoDataFrame([0], columns=['id'],
-                                 geometry=[extent.unary_union.convex_hull.buffer(args.tile + args.buffer)])
+        extent = gp.GeoDataFrame([0], columns=['id'], geometry=[xyz.unary_union.convex_hull])
     else:
-        extent = gp.GeoDataFrame(data=np.arange(len(matrix_arr)), 
-                                 geometry=[Point(r[0], r[1]) for r in matrix_arr])
-        extent = gp.GeoDataFrame([0], columns=['id'], 
-                                 geometry=[extent.unary_union.envelope.buffer(args.tile + args.buffer, join_style='mitre')])
+        extent = gp.GeoDataFrame([0], columns=['id'], geometry=[xyz.unary_union.envelope])
+    if args.save_bounding_geometry:
+        extent.to_file(args.save_bounding_geometry, crs=None)
+        if args.verbose: print(f'bounding geometry saved to {args.save_bounding_geometry}')
+    if args.buffer:
+        extent.geometry = extent.buffer(args.tile + args.buffer, join_style='mitre' if not args.convex_hull else 1)
+        if args.save_bounding_geometry:
+            extent.to_file(args.save_bounding_geometry.replace('.shp', '.buffer.shp'), crs=None)
     args.bbox = (extent.exterior.bounds.values[0] // args.tile) * args.tile
     if args.verbose: print('bounding box:', args.bbox)
-    if args.save_bounding_geometry: 
-        extent.to_file(args.save_bounding_geometry)
-        if args.verbose: print(f'bounding geometry saved to {args.save_bounding_geometry}') 
-    
+
     # create tile db
     X, Y = np.meshgrid(np.arange(args.bbox[0], args.bbox[2], args.tile),
                        np.arange(args.bbox[1], args.bbox[3], args.tile))
@@ -239,6 +240,8 @@ if __name__ == '__main__':
     # write tile index
     args.tiles[['tile', 'x', 'y']].to_csv(os.path.join(args.odir, 'tile_index.dat'), 
                                           sep=' ', index=False, header=False)
+
+    if args.save_scan_positions: xyz.to_file(args.save_scan_positions)
     if args.bbox_only: sys.exit()
 
     # read in and tile scans
