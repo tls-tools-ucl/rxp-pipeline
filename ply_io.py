@@ -2,23 +2,20 @@ import pandas as pd
 import numpy as np
 import sys
 
-def open_ply(fp, newline=None):
+def read_ply(fp, newline=None):
 
-    if (sys.version_info > (3, 0)):
-        return open(fp, encoding='ISO-8859-1', newline=newline)
-    else:
-        return open(fp)
-
-def read_ply(fp):
-
-    line = open_ply(fp).readline()
+    line = open(fp, encoding='ISO-8859-1').readline()
     newline = '\n' if line == 'ply\n' else None
 
     return read_ply_(fp, newline)
     
 def read_ply_(fp, newline):
 
-    with open_ply(fp, newline=newline) as ply:
+    open_file = open(fp, 
+                     encoding='ISO-8859-1',
+                     newline=newline) 
+
+    with open_file as ply:
  
         length = 0
         prop = []
@@ -54,7 +51,7 @@ def read_ply_(fp, newline):
 def write_ply(output_name, pc, comments=[]):
 
     cols = ['x', 'y', 'z']
-    pc[['x', 'y', 'z']] = pc[['x', 'y', 'z']].astype('f8')
+    pc[['x', 'y', 'z']] = pc[['x', 'y', 'z']].astype('f4')
 
     with open(output_name, 'w') as ply:
 
@@ -65,9 +62,9 @@ def write_ply(output_name, pc, comments=[]):
             ply.write("comment {}\n".format(comment))
         ply.write("obj_info generated with pcd2ply.py\n")
         ply.write("element vertex {}\n".format(len(pc)))
-        ply.write("property float64 x\n")
-        ply.write("property float64 y\n")
-        ply.write("property float64 z\n")
+        ply.write("property float x\n")
+        ply.write("property float y\n")
+        ply.write("property float z\n")
         if 'red' in pc.columns:
             cols += ['red', 'green', 'blue']
             pc[['red', 'green', 'blue']] = pc[['red', 'green', 'blue']].astype('i')
@@ -77,8 +74,8 @@ def write_ply(output_name, pc, comments=[]):
         for col in pc.columns:
             if col in cols: continue
             try:
-                pc[col] = pc[col].astype('f8')
-                ply.write("property float64 {}\n".format(col))
+                pc[col] = pc[col].astype('f4')
+                ply.write("property float {}\n".format(col))
                 cols += [col]
             except:
                 pass
@@ -90,4 +87,4 @@ def write_ply(output_name, pc, comments=[]):
 if __name__ == '__main__':
 
     import sys
-    print(read_ply(sys.argv[1]).head())
+    write_ply(sys.argv[1], read_ply(sys.argv[1]))
