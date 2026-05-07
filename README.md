@@ -1,15 +1,85 @@
-# rxp-pipeline
+# rxp-pipeline: Tools to transform RIEGL terrestrial LiDAR data
 
 [![DOI](https://zenodo.org/badge/632593854.svg)](https://doi.org/10.5281/zenodo.15196450)
 
-Methods used by UCL Geography to preprocess registered .rxp data to allow further processing. The pipeline uses PDAL and requires installation of the Python bindings.
+## Overview
 
-### File structure
+Pipeline and tools to convert co-registered RIEGL TLS data (either raw `.rxp` files or RiSCAN Pro exported `.rdbx` files) into tiled and downsampled PLY point clouds with configurable tile size, overlap, buffer and filtering. These methods are used by UCL Geography to preprocess TLS data for downstream processing workflows including tree extraction and biomass estimation.
 
-File structure should be as below where `ScanPos001`, `ScanPos002`, ... `ScanPosXXX` are the raw date from the scanner and matrix are derived RiSCAN Pro. Anything in extraction is _temporary_ and could be deleted i.e. don't put anything in there that needs to be kept. `clouds` are the individually extracted trees, these can be either leaf-on or -off, conventaional naming is `<plot>_<year>_T<num>.ply` where `<num>` can be random or a tree tag (maybe need a different suffix to decipher this). `models` contain output from TreeQSM or treegraph, if there are both then put in separate directories.
+
+
+## Authors
+
+- Dr Phil Wilkes
+- Dr Wanxin Yang
+
+## Citation
+
+Wilkes, P., & Yang, W. (2025). *rxp-pipeline: Tools to transform RIEGL terrestrial LiDAR data*. Zenodo. https://doi.org/10.5281/zenodo.15196452
+
+## Installation
+
+#### Create and activate the conda environment:
+
+```bash
+    $ conda env create -f environment.yml
+    $ conda activate pdal
+```
+
+#### Compiling PDAL with python bindings and .rxp support
+    
+1.  Download the [PDAL current release](https://pdal.io/download.html#current-release-s).
+    
+    Example commands in linux:
+    
+    ```bash
+        $ wget https://github.com/PDAL/PDAL/releases/download/2.3.0/PDAL-2.3.0-src.tar.gz
+        $ tar -xf PDAL-2.3.0-src.tar.gz
+    ```    
+
+2.  Download the `rivlib-2_5_10-x86_64-linux-gcc9.zip` (make sure to get the gcc9 version) and the the `rdblib-2.4.0-x86_64-linux.tar.gz` from the memebers area of the RIEGL website. 
+    - Unzip `rivlib-2_5_10-x86_64-linux-gcc9.zip` and add an environmental variable to point at the directory `export RiVLib_DIR=/path/to/rivlib-2_5_10-x86_64-linux-gcc9`. 
+    - Untar `rdblib-2.4.0-x86_64-linux.tar.gz` and add an environmental variable to point at the directory `export rdb_DIR=/path/to/rdblib-2.4.0-x86_64-linux/interface/cpp`
+
+3.  Before running cmake
+    - edit line 58 of `cmake/options.cmake` to `"Choose if RiVLib support should be built" True)`
+    - edit line 63 of `cmake/options.cmake` to `"Choose if rdblib support should be built" True)`
+    - edit line 56 of `plugins/rxp/io/RxpReader.hpp` to `const bool DEFAULT_SYNC_TO_PPS = false;`
+    
+    <br>
+    Then, follow the [PDAL Unix Compilation](https://pdal.io/development/compilation/unix.html) notes to compile PDAL. Example commands in Linux:
+    
+    ```bash 
+        $ cd /path/to/PDAL-2.3.0-src
+        $ mkdir build
+        $ cd build
+        $ cmake -G Ninja ..
+        $ ninja
+        $ ls bin/pdal
+        bin/pdal
+    ```    
+    <br>
+    Next, add the this bin path to the environmental variable $PATH 
+    
+    ```bash
+        export PATH=/path/to/PDAL-2.3.0-src/build/bin:$PATH
+    ```
+<br>
+
+4. Copy lib files to pdal lib, this is required to open `.rxp` and `.rdbx` in Python.
+    ```bash
+        $ cp build/lib/libpdal_plugin_reader_*.so /path/to/.conda/envs/pdal/lib/.
+    ```
+
+
+
+
+## Project Data File Structure
+
+File structure should be as below where `ScanPos001`, `ScanPos002`, ... `ScanPosXXX` are the raw data from the scanner and matrix are derived RiSCAN Pro. Anything in `extraction` is _temporary_ and could be deleted i.e. don't put anything in there that needs to be kept. `clouds` and `models` are kept for downstream use.
 
 ```
-20XX-XX-08.XXX.riproject
+20XX-XX-XX.XXX.riproject
   ├── ScanPos001
   ├── ScanPos002
   ├── ScanPosXXX
@@ -28,75 +98,89 @@ File structure should be as below where `ScanPos001`, `ScanPos002`, ... `ScanPos
   ├── clouds
   |   └── <trees extracted with FSCT or other>
   └── models
-      └── <QSMs from either TreeQSM or treegraph>
+      └── <QSMs from either TreeQSM or Treegraph>
 ```
 
-### Compiling PDAL with python bindings and .rxp support
+## Processing Workflow
 
-1.  Create a conda environment using `conda create -n pdal -c conda-forge gdal ninja cmake cxx-compiler laszip pdal python-pdal pandas geopandas`
-    
-2.  Download the [PDAL current release](https://pdal.io/download.html#current-release-s).
-    
-    Example commands in linux:
-    
-    
-        $ wget https://github.com/PDAL/PDAL/releases/download/2.3.0/PDAL-2.3.0-src.tar.gz
-        $ tar -xf PDAL-2.3.0-src.tar.gz
-        
+Assuming you have prepared the `pdal` environment and set up your RIEGL project with matrix files:
 
-3.  Download the `rivlib-2_5_10-x86_64-linux-gcc9.zip` (make sure to get the gcc9 version) and the the `rdblib-2.4.0-x86_64-linux.tar.gz` from the memebers area of the RIEGL website. 
-    - Unzip `rivlib-2_5_10-x86_64-linux-gcc9.zip` and add an environmental variable to point at the directory `export RiVLib_DIR=/path/to/rivlib-2_5_10-x86_64-linux-gcc9`. 
-    - Untar `rdblib-2.4.0-x86_64-linux.tar.gz` and add an environmental variable to point at the directory `export rdb_DIR=/path/to/rdblib-2.4.0-x86_64-linux/interface/cpp`
+```bash
+# Activate environment
+$ conda activate pdal
 
-4.  Before running cmake
-    - edit line 58 of `cmake/options.cmake` to `"Choose if RiVLib support should be built" True)`
-    - edit line 63 of `cmake/options.cmake` to `"Choose if rdblib support should be built" True)`
-    - edit line 56 of `plugins/rxp/io/RxpReader.hpp` to `const bool DEFAULT_SYNC_TO_PPS = false;`
+# Navigate to project extraction directory
+$ mkdir -p /path/to/riproject/extraction/rxp2ply
+$ cd /path/to/riproject/extraction/rxp2ply
+```
 
-    Then, follow the [PDAL Unix Compilation](https://pdal.io/development/compilation/unix.html) notes to compile PDAL. Example commands in Linux:
-       
-        $ cd /path/to/PDAL-2.3.0-src
-        $ mkdir build
-        $ cd build
-        $ cmake -G Ninja ..
-        $ ninja
-        $ ls bin/pdal
-        bin/pdal
-        
-    Next, add the this bin path to the environmental variable $PATH `export PATH=/path/to/PDAL-2.3.0-src/build/bin:$PATH`
+#### Step 1. Convert plot-level rxp or rdbx files to tiled PLY with full resolution
 
-5. `cp build/lib/libpdal_plugin_reader_*.so /path/to/.conda/envs/pdal/lib/.`, this is required to open `.rxp`  and `.rdbx` in Python.
+```bash
+# Case 1: If process RIEGL raw project (.rxp files)
+$ python rxp2ply.py \
+    --project /PATH/TO/XXXX.riproject \
+    --matrix-dir /PATH/TO/matrix \
+    --odir ./ \
+    --tile 10 \
+    --deviation 15 \
+    --reflectance -20 5 \
+    --rotate-bbox \
+    --store-tmp-with-sp \
+    --verbose 
 
-### Processing data
+# Case 2: If process RISCAN PRO project (.rdbx files)
+$ python riscan2ply.py \
+    --riproject /PATH/TO/XXXX.RiSCAN \
+    --odir ./ \
+    --tile 10 \
+    --deviation 15 \
+    --reflectance -20 5 \
+    --rotate-bbox \
+    --store-tmp-with-sp \
+    --verbose 
+```
 
-`conda activate pdal`
+Parameters explanation:
+- `--tile <size>`: Defines the size of each tile (default: 20), unit in metre.
+- `--tile-overlap <size>`: Sets the overlap between tiles (default: 5), unit in metre.
+- `--buffer <size>`: Sets the size of buffer around the bounding box (plot boundary) (default: 10), unit in metre.
+- `--deviation <value>`: Filters points based on deviation, keeping only those below the specified value (default: 15).
+- `--reflectance <min> <max>`: Filters points based on reflectance values within the specified range (e.g., -20 to 5).
+- `--rotate-bbox`: Rotates the bounding box to better align with the point cloud's orientation.
+- `--store-tmp-with-sp`: spits out individual tmp files for scans and merge them back afterwards.
+- `--verbose`: Enables detailed logging for debugging and progress tracking.
+- `--pos <position>`: Specifies a scan position identifier to process a single scan (e.g., `001`).
 
-Create a direcotry in the the `.riproject` directory called `extraction` using `mkdir`, navigate into it and create a directoty called `rxp2ply` and navigate into this.  
+More available parameters can be viewed with the `-h` flag:
 
-#### 0. Download the python scripts from github
-`$ git clone https://github.com/philwilkes/rxp-pipeline.git`
+```bash
+$ python rxp2ply.py -h
+$ python riscan2ply.py -h
+```
 
-#### 1. rxp2ply.py 
 
-Navigate to `cd /path/to/xx.riporject/extraction/rxp2ply/`
-Run `python /path/to/rxp-pipeline/rxp2ply.py --project ../../../xx.riproject --deviation 15 --odir . --verbose`
+#### Step 2. Downsample the data to a uniform point density
+```bash
+$ mkdir ../downsample
+$ cd ../downsample
+$ python downsample.py -i ../rxp2ply/ --length 0.02 --verbose
+```
+Parameters explanation:
+- `-i <input_path>`: Specifies the input directory containing tiled point clouds.
+- `--length <voxel_size>`: Defines the voxel size for downsampling (default: 0.02), unit in metre.
+- `--verbose`: Enables detailed logging for debugging and progress tracking.
 
-This will populate the `rxp2ply` directory with full resolution tiled data
 
-#### 2. downsample.py
+#### Step 3. Generate spatial tile index
+```bash
+$ cd ..
+$ python tile_index.py -i downsample/*.ply -t tile_index.dat
+```
 
-This downsamples the data to a uniform density
+## Downstream processing: Extract individual trees 
+#### Method 1: TLS2trees 
+Instructions see https://github.com/tls-tools-ucl/TLS2trees
 
-`mkdir ../downsample` and navigate to `cd ../downsample`
-
-`python /path/to/rxp-pipeline/downsample.py -i ../rxp2ply/ --length .02 --verbose `
-
-#### 3. tile_index.py
-
-Navigate back to `extraction`
-
-`python /path/to/rxp-pipeline/tile_index.py -i downsample/*.ply`.
-
-#### 4. Run TLS2trees
-
-Instructions on this are [here](https://github.com/philwilkes/FSCT).
+#### Method 2: RCT-pipeline 
+Instructions see https://github.com/wanxinyang/rct-pipeline
