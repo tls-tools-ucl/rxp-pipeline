@@ -1,6 +1,6 @@
 # rxp-pipeline: Tools to transform RIEGL terrestrial LiDAR data
 
-[![DOI](https://zenodo.org/badge/632593854.svg)](https://doi.org/10.5281/zenodo.15196450)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.15196452.svg)](https://doi.org/10.5281/zenodo.15196452)
 
 ## Overview
 
