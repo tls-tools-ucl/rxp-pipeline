@@ -121,7 +121,7 @@ def xyz2ply_w_sp(xyz, args):
 
         if len(tmp) > 0:
             tmp.columns = ['x', 'y', 'z', 'refl', 'dev', 'ReturnNumber', 'NumberOfReturns', 'sp']
-            ply_io.write_ply(f'{xyz}.ply', tmp)
+            ply_io.write_ply(os.path.join(args.odir, f'{xyz}.ply'), tmp)
     
 def xyz2ply(xyz_path, args):
 
@@ -200,11 +200,11 @@ if __name__ == '__main__':
                 not_registered.append(name)
                 continue
             matrix = np.array([float(v) for v in sp.find('sop').find('matrix').text.split()]).reshape(4, 4)
-            try:
-                rdbx = glob.glob(os.path.join(args.riproject, 'project.rdb', 'SCANS', name, 'SINGLESCANS', scan, scan + '.rdbx'))[0]
-            except Exception as err:
-                print(os.path.join(args.riproject, 'project.rdb', 'SCANS', name, 'SINGLESCANS', scan, scan + '.rdbx'))        
-            args.ScanPos[name] = {'name':name, 'scan':scan, 'regi':regi, 'mat':np.dot(args.pop, matrix), 'rdbx':rdbx}
+            # a scan position without its .rdbx file stays in the bounding box but is not processed
+            # (previously the last .rdbx found was reused, i.e. another scan's points)
+            fn_rdbx = os.path.join(args.riproject, 'project.rdb', 'SCANS', name, 'SINGLESCANS', scan, scan + '.rdbx')
+            args.ScanPos[name] = {'name':name, 'scan':scan, 'regi':regi, 'mat':np.dot(args.pop, matrix),
+                                  'rdbx':fn_rdbx if os.path.isfile(fn_rdbx) else None, 'rdbx_expected':fn_rdbx}
 
     if args.verbose: print('Scan positions not registered:', not_registered)
 
@@ -297,6 +297,12 @@ if __name__ == '__main__':
     if args.save_scan_positions: xyz.to_file(args.save_scan_positions)
     if args.bbox_only: sys.exit()
 
+    # scan positions without a .rdbx file are part of the bounding box but are not processed
+    missing = sorted(k for k, v in args.ScanPos.items() if v['rdbx'] is None)
+    for k in missing:
+        print(f"!!! Can not find {args.ScanPos[k]['rdbx_expected']}: {k} is skipped !!!")
+    args.ScanPos = {k: v for k, v in args.ScanPos.items() if v['rdbx'] is not None}
+
     # read in and tile scans
     Pool = multiprocessing.Pool(args.num_prcs)
     m = multiprocessing.Manager()
@@ -304,12 +310,13 @@ if __name__ == '__main__':
     #[tile_data(args.ScanPos[sp], args) for sp in sorted(args.ScanPos.keys())]
     Pool.starmap(tile_data, [(args.ScanPos[sp], args) for sp in sorted(args.ScanPos.keys())])
 
-    # write to ply - reusing Pool
+    # write to ply - reusing Pool; starmap (not starmap_async) so that an error in any
+    # tile is raised here instead of being lost
     if args.store_tmp_with_sp:
-        Pool.starmap_async(xyz2ply_w_sp, [(xyz, args) for xyz in np.sort(args.tiles.tile)])
+        Pool.starmap(xyz2ply_w_sp, [(xyz, args) for xyz in np.sort(args.tiles.tile)])
     else:
         xyz = glob.glob(os.path.join(args.odir, '*.xyz'))
-        Pool.starmap_async(xyz2ply, [(xyz, args) for xyz in np.sort(xyz)])
+        Pool.starmap(xyz2ply, [(xyz, args) for xyz in np.sort(xyz)])
     #[xyz2ply_w_sp(xyz, args) for xyz in np.sort(args.tiles.tile)]
     Pool.close()
     Pool.join()
