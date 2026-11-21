@@ -14,89 +14,103 @@ import ply_io
 import pdal
 import pyproj
 from lxml import etree as et
-from shapely.geometry import Point
+from shapely.geometry import Point, Polygon
 
 
 def tile_data(scan_pos, args):
-    if args.verbose:
-        with args.Lock:
-            print('rdbx -> xyz:', scan_pos['rdbx'])
-#    try:
-    sp = int(scan_pos['name'].replace('ScanPos', ''))    
-    cmds = []
-
-    # pdal commands as dictionaries
-    read_in = {"type":"readers.rdb",
-                "filename": scan_pos['rdbx']}
-    cmds.append(read_in)
-
-    dev_filter = {"type":"filters.range", 
-                    "limits":"Deviation[0:{}]".format(args.deviation)}
-    cmds.append(dev_filter)    
-
-    refl_filter = {"type":"filters.range", 
-                    "limits":"Reflectance[{}:{}]".format(*args.reflectance)}
-    cmds.append(refl_filter)
-
-    if args.preserve_projection:
-        pass
-    elif args.target_epsg:
-        transform = {"type":"filters.reprojection",
-                        "in_srs":f"EPSG:{args.pop_epsg}",
-                        "out_srs":f"EPSG:{args.target_epsg}"}
-        cmds.append(transform)
-    else: 
-        transform = {"type":"filters.transformation",
-                        "matrix":' '.join(np.linalg.inv(args.pop).flatten().astype(str))}
-        cmds.append(transform)
-
-    # link commmands and pass to pdal
-    JSON = json.dumps(cmds)
-
-    pipeline = pdal.Pipeline(JSON)
-    pipeline.execute()
-
-    # iterate over tiled arrays
-    for arr in pipeline.arrays:
-
-        arr = pd.DataFrame(arr)
-        arr = arr.rename(columns={'X':'x', 'Y':'y', 'Z':'z'})
-        #arr.columns = ['x', 'y', 'z', 'InternalTime', 'ReturnNumber', 'NumberOfReturns',
-        #               'amp', 'refl', 'EchoRange', 'dev', 'BackgroundRadiation', 
-        #               'IsPpsLocked', 'EdgeOfFlightLine']
-        arr.loc[:, 'sp'] = sp
-        arr = arr[['x', 'y', 'z', 'Reflectance', 'Deviation', 'ReturnNumber', 'NumberOfReturns', 'sp']] # save only relevant fields
-        
-        # remove points outside bbox
-        arr = arr.loc[(arr.x.between(args.bbox[0], args.bbox[2])) & 
-                        (arr.y.between(args.bbox[1], args.bbox[3]))]
-        if len(arr) == 0: continue
-
-        # tile data
-        for _, tile in args.tiles.iterrows(): 
-            tile_arr = arr.loc[
-                (arr.x.between(tile.x, tile.x + args.tile, inclusive='both')) & 
-                (arr.y.between(tile.y, tile.y + args.tile, inclusive='both'))]
-            
-            # Skip if no points in this tile
-            if len(tile_arr) == 0:
-                continue
-            
-            # Identify tile number and pad with zeros
-            tile_n = str(tile.tile).zfill(args.n)
-
-            # Save to xyz file
+    try:
+        if args.verbose:
             with args.Lock:
-                if args.store_tmp_with_sp:
-                    with open(os.path.join(args.odir, f'{args.plot_code}{tile_n}.{sp}.xyz'), 'ab') as fh:
-                        fh.write(tile_arr.to_records(index=False).tobytes())
-                else:
-                    with open(os.path.join(args.odir, f'{args.plot_code}{tile_n}.xyz'), 'ab') as fh:
-                        fh.write(tile_arr.to_records(index=False).tobytes())
+                print('rdbx -> xyz:', scan_pos['rdbx'])
+        sp = int(scan_pos['name'].replace('ScanPos', ''))    
+        cmds = []
 
-#
-#    except:
-#        print('!!!!', scan_pos, '!!!!') 
+        # pdal commands as dictionaries
+        read_in = {"type":"readers.rdb",
+                    "filename": scan_pos['rdbx']}
+        cmds.append(read_in)
+
+        dev_filter = {"type":"filters.range", 
+                        "limits":"Deviation[0:{}]".format(args.deviation)}
+        cmds.append(dev_filter)    
+
+        refl_filter = {"type":"filters.range", 
+                        "limits":"Reflectance[{}:{}]".format(*args.reflectance)}
+        cmds.append(refl_filter)
+
+        if args.preserve_projection:
+            pass
+        elif args.target_epsg:
+            transform = {"type":"filters.reprojection",
+                            "in_srs":f"EPSG:{args.pop_epsg}",
+                            "out_srs":f"EPSG:{args.target_epsg}"}
+            cmds.append(transform)
+        else: 
+            transform = {"type":"filters.transformation",
+                            "matrix":' '.join(np.linalg.inv(args.pop).flatten().astype(str))}
+            cmds.append(transform)
+
+        # link commmands and pass to pdal
+        JSON = json.dumps(cmds)
+
+        pipeline = pdal.Pipeline(JSON)
+        pipeline.execute()
+
+        # iterate over tiled arrays
+        for arr in pipeline.arrays:
+
+            arr = pd.DataFrame(arr)
+            arr = arr.rename(columns={'X':'x', 'Y':'y', 'Z':'z'})
+            #arr.columns = ['x', 'y', 'z', 'InternalTime', 'ReturnNumber', 'NumberOfReturns',
+            #               'amp', 'refl', 'EchoRange', 'dev', 'BackgroundRadiation', 
+            #               'IsPpsLocked', 'EdgeOfFlightLine']
+            arr.loc[:, 'sp'] = sp
+            arr = arr[['x', 'y', 'z', 'Reflectance', 'Deviation', 'ReturnNumber', 'NumberOfReturns', 'sp']] # save only relevant fields
+
+            # remove points outside bbox
+            arr = arr.loc[(arr.x.between(args.bbox[0], args.bbox[2])) & 
+                            (arr.y.between(args.bbox[1], args.bbox[3]))]
+            if len(arr) == 0: continue
+
+            # tile data: a tile with origin (x0, y0) holds the points with x0 <= x < x0 + tile and
+            # y0 <= y < y0 + tile; with an overlap, neighbouring origins are (tile - overlap) apart and
+            # a point goes into every tile that holds it. Instead of masking the whole scan once per
+            # tile, find for each point the tile origins it falls in (searchsorted on the sorted
+            # origins), one combination of x and y origin at a time.
+            rec = arr.to_records(index=False)
+            x, y = arr.x.to_numpy(), arr.y.to_numpy()
+            ix_lo = np.searchsorted(args.ux, x - args.tile, side='right')   # first origin > x - tile
+            ix_hi = np.searchsorted(args.ux, x, side='right')                # origins <= x end here
+            iy_lo = np.searchsorted(args.uy, y - args.tile, side='right')
+            iy_hi = np.searchsorted(args.uy, y, side='right')
+            for kx in range(args.k_max):
+                ix = ix_lo + kx
+                ok_x = ix < ix_hi
+                if not ok_x.any(): break
+                for ky in range(args.k_max):
+                    iy = iy_lo + ky
+                    ok = ok_x & (iy < iy_hi)
+                    if not ok.any(): break
+                    tile_id = np.full(len(x), -1, dtype=np.int64)
+                    tile_id[ok] = args.tile_lookup[ix[ok], iy[ok]]          # -1: origin not in the tile set
+                    sel = np.flatnonzero(tile_id >= 0)
+                    if len(sel) == 0: continue
+                    sel = sel[np.argsort(tile_id[sel], kind='stable')]
+                    tids, starts = np.unique(tile_id[sel], return_index=True)
+                    for t, idx in zip(tids, np.split(sel, starts[1:])):
+                        tile_n = str(t).zfill(args.n)
+                        # Save to xyz file
+                        with args.Lock:
+                            if args.store_tmp_with_sp:
+                                with open(os.path.join(args.odir, f'{args.plot_code}{tile_n}.{sp}.xyz'), 'ab') as fh:
+                                    fh.write(rec[idx].tobytes())
+                            else:
+                                with open(os.path.join(args.odir, f'{args.plot_code}{tile_n}.xyz'), 'ab') as fh:
+                                    fh.write(rec[idx].tobytes())
+
+    except Exception as err:
+        # one unreadable scan (e.g. a damaged .rdbx) is reported and skipped instead of ending the run
+        print('!!!!', scan_pos['name'], scan_pos['rdbx'], err, '!!!!')
 
 def xyz2ply_w_sp(xyz, args):
 
@@ -108,7 +122,7 @@ def xyz2ply_w_sp(xyz, args):
 
     tmp = pd.DataFrame()
 
-    for fn in glob.glob(f'{xyz}.*.xyz'):
+    for fn in glob.glob(os.path.join(args.odir, f'{xyz}.*.xyz')):
         open_file = open(fn, encoding='ISO-8859-1')
         tmp = pd.concat([tmp, pd.DataFrame(np.fromfile(open_file, 
                                                        dtype='float64,float64,float64,float32,float32,uint8,uint8,int64'))])
@@ -116,7 +130,7 @@ def xyz2ply_w_sp(xyz, args):
 
     if len(tmp) > 0:
         tmp.columns = ['x', 'y', 'z', 'refl', 'dev', 'ReturnNumber', 'NumberOfReturns', 'sp']
-        ply_io.write_ply(f'{xyz}.ply', tmp)
+        ply_io.write_ply(os.path.join(args.odir, f'{xyz}.ply'), tmp)
 
 
 def xyz2ply(xyz_path, args):
@@ -142,7 +156,7 @@ if __name__ == '__main__':
     parser.add_argument('--not-registered', action='store_true', help='include scans that are not registered')
     parser.add_argument('--deviation', type=float, default=15, help='deviation filter')
     parser.add_argument('--reflectance', type=float, nargs=2, default=[-999, 999], help='reflectance filter')
-    parser.add_argument('--tile-overlap', type=float, default=0, help='amount of overlap to include in each tile')
+    parser.add_argument('--tile-overlap', type=float, default=0, help='overlap between neighbouring tiles (m), 0 <= overlap < tile')
     parser.add_argument('--tile', type=float, default=10, help='length of tile')
     parser.add_argument('--num-prcs', type=int, default=10, help='number of cores to use')
     #parser.add_argument('--prefix', type=str, default='ScanPos', help='file name prefix, deafult:ScanPos')
@@ -163,6 +177,9 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     args.riproject = os.path.abspath(args.riproject) 
+    # neighbouring tiles are (tile - overlap) apart, so the overlap must be smaller than the tile
+    if not 0 <= args.tile_overlap < args.tile:
+        parser.error(f'--tile-overlap must be >= 0 and smaller than --tile ({args.tile:g}); got {args.tile_overlap:g}')
 
     # read in project.rsp
     rsp = os.path.join(args.riproject, 'project.rsp')
@@ -188,8 +205,10 @@ if __name__ == '__main__':
             regi = bool(int(sp.find('registered').text))
             if not regi and not args.not_registered: continue
             matrix = np.array([float(v) for v in sp.find('sop').find('matrix').text.split()]).reshape(4, 4)
-            rdbx = glob.glob(os.path.join(args.riproject, 'project.rdb', 'SCANS', name, 'SINGLESCANS', scan, scan + '.rdbx'))[0]
-            args.ScanPos[name] = {'name':name, 'scan':scan, 'regi':regi, 'mat':np.dot(args.pop, matrix), 'rdbx':rdbx}
+            # a scan position without its .rdbx file stays in the bounding box but is not processed
+            fn_rdbx = os.path.join(args.riproject, 'project.rdb', 'SCANS', name, 'SINGLESCANS', scan, scan + '.rdbx')
+            args.ScanPos[name] = {'name':name, 'scan':scan, 'regi':regi, 'mat':np.dot(args.pop, matrix),
+                                  'rdbx':fn_rdbx if os.path.isfile(fn_rdbx) else None, 'rdbx_expected':fn_rdbx}
 
     # read rotation matrix into array
     matrix = np.zeros((len(args.ScanPos), 3))
@@ -204,7 +223,7 @@ if __name__ == '__main__':
         pass
     elif args.target_epsg:
         if pyproj.CRS.from_epsg(args.target_epsg).is_geographic:
-            raise Exception(f'target epsg:{target_epsg} is a geographic projection and is currently not supported')
+            raise Exception(f'target epsg:{args.target_epsg} is a geographic projection and is currently not supported')
         matrix = matrix.to_crs(epsg=args.target_epsg)
     else:
         matrix['a'] = 1
@@ -243,9 +262,13 @@ if __name__ == '__main__':
     # X, Y = np.meshgrid(np.arange(args.bbox[0], args.bbox[2], args.tile),
     #                    np.arange(args.bbox[1], args.bbox[3], args.tile))
     ## add tile overlap
-    X, Y = np.meshgrid(np.arange(args.bbox[0], args.bbox[2], args.tile - args.tile_overlap),
-                       np.arange(args.bbox[1], args.bbox[3], args.tile - args.tile_overlap))
-    XY = np.vstack([X.flatten(), Y.flatten()]).T.astype(int)
+    step = args.tile - args.tile_overlap
+    X, Y = np.meshgrid(np.arange(args.bbox[0], args.bbox[2], step),
+                       np.arange(args.bbox[1], args.bbox[3], step))
+    XY = np.round(np.vstack([X.flatten(), Y.flatten()]).T, 3)
+    # whole-metre origins stay integers (as before); others are kept as they are instead of being
+    # truncated, which made the overlap uneven (e.g. a 7.5 m step became 7 and 8 m)
+    if np.allclose(XY, np.round(XY)): XY = XY.astype(int)
     args.tiles = gp.GeoDataFrame(data=XY, columns=['x', 'y'], geometry=[Point(r[0], r[1]) for r in XY])
     args.tiles = gp.sjoin(args.tiles, extent, how='inner')
     
@@ -253,16 +276,32 @@ if __name__ == '__main__':
     args.tiles = args.tiles[['x', 'y', 'tile', 'geometry']]
     args.n = 4 #len(str(len(args.tiles)))
 
+    # lookup for tile_data: sorted tile origins in x and y, the tile number of each (x, y) origin
+    # pair (-1 where the pair is not a tile), and the most tiles a point can fall in along an axis
+    args.ux = np.unique(args.tiles.x.to_numpy().astype(float))
+    args.uy = np.unique(args.tiles.y.to_numpy().astype(float))
+    args.tile_lookup = np.full((len(args.ux), len(args.uy)), -1, dtype=np.int64)
+    args.tile_lookup[np.searchsorted(args.ux, args.tiles.x.to_numpy().astype(float)),
+                     np.searchsorted(args.uy, args.tiles.y.to_numpy().astype(float))] = args.tiles.tile.to_numpy()
+    args.k_max = int(np.ceil(args.tile / step)) + 1
+
     if len(args.pos) > 0:
         args.pos = [f'ScanPos{p.zfill(3)}' for p in args.pos]
         if args.verbose: print('processing only:', args.pos)
-        args.ScanPos = {k:args.ScanPos[k] for k in args.pos} 
-        #args.ScanPos = [os.path.join(args.riproject, p) for p in args.pos]
+        unknown = [k for k in args.pos if k not in args.ScanPos]
+        if unknown: print('!!! Not in the project or not registered, skipped:', unknown, '!!!')
+        args.ScanPos = {k:args.ScanPos[k] for k in args.pos if k in args.ScanPos}
 
     # write tile index
     args.tiles[['tile', 'x', 'y']].to_csv(os.path.join(args.odir, 'tile_index.dat'), 
                                           sep=' ', index=False, header=False)
     if args.bbox_only: sys.exit()
+
+    # scan positions without a .rdbx file are part of the bounding box but are not processed
+    missing = sorted(k for k, v in args.ScanPos.items() if v['rdbx'] is None)
+    for k in missing:
+        print(f"!!! Can not find {args.ScanPos[k]['rdbx_expected']}: {k} is skipped !!!")
+    args.ScanPos = {k: v for k, v in args.ScanPos.items() if v['rdbx'] is not None}
 
     # read in and tile scans
     Pool = multiprocessing.Pool(args.num_prcs)
@@ -271,12 +310,13 @@ if __name__ == '__main__':
     #[tile_data(args.ScanPos[sp], args) for sp in sorted(args.ScanPos.keys())]
     Pool.starmap(tile_data, [(args.ScanPos[sp], args) for sp in sorted(args.ScanPos.keys())])
 
-    # write to ply - reusing Pool
+    # write to ply - reusing Pool; starmap (not starmap_async) so that an error in any
+    # tile is raised here instead of being lost
     if args.store_tmp_with_sp:
-        Pool.starmap_async(xyz2ply_w_sp, [(xyz, args) for xyz in np.sort(args.tiles.tile)])
+        Pool.starmap(xyz2ply_w_sp, [(xyz, args) for xyz in np.sort(args.tiles.tile)])
     else:
         xyz = glob.glob(os.path.join(args.odir, '*.xyz'))
-        Pool.starmap_async(xyz2ply, [(xyz, args) for xyz in np.sort(xyz)])
+        Pool.starmap(xyz2ply, [(xyz, args) for xyz in np.sort(xyz)])
     #[xyz2ply_w_sp(xyz, args) for xyz in np.sort(args.tiles.tile)]
     Pool.close()
     Pool.join()
