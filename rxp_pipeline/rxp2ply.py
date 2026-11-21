@@ -119,14 +119,14 @@ def xyz2ply_w_sp(xyz, args):
 
     tmp = pd.DataFrame()
 
-    for fn in glob.glob(f'{xyz}.*.xyz'):    
+    for fn in glob.glob(os.path.join(args.odir, f'{xyz}.*.xyz')):
         open_file = open(fn, encoding='ISO-8859-1')
         tmp = pd.concat([tmp, pd.DataFrame(np.fromfile(open_file, dtype='float64,float64,float64,float32,float32,uint8,uint8,int64'))])
         os.unlink(fn)
 
     if len(tmp) > 0:
         tmp.columns = ['x', 'y', 'z', 'refl', 'dev', 'ReturnNumber', 'NumberOfReturns', 'sp']
-        ply_io.write_ply(f'{xyz}.ply', tmp)
+        ply_io.write_ply(os.path.join(args.odir, f'{xyz}.ply'), tmp)
 
 def xyz2ply(xyz_path, args):
 
@@ -251,12 +251,13 @@ if __name__ == '__main__':
     #[tile_data(sp, args) for sp in np.sort(args.ScanPos)]
     Pool.starmap(tile_data, [(sp, args) for sp in random.sample(args.ScanPos, len(args.ScanPos))])
 
-    # write to ply - reusing Pool
+    # write to ply - reusing Pool; starmap (not starmap_async) so that an error in any
+    # tile is raised here instead of being lost
     if args.store_tmp_with_sp:
-        Pool.starmap_async(xyz2ply_w_sp, [(xyz, args) for xyz in np.sort(args.tiles.tile)])
+        Pool.starmap(xyz2ply_w_sp, [(xyz, args) for xyz in np.sort(args.tiles.tile)])
     else:
         xyz = glob.glob(os.path.join(args.odir, '*.xyz'))
-        Pool.starmap_async(xyz2ply, [(xyz, args) for xyz in np.sort(xyz)])
+        Pool.starmap(xyz2ply, [(xyz, args) for xyz in np.sort(xyz)])
     #[xyz2ply(xyz, args) for xyz in np.sort(args.tiles.tile)]
     Pool.close()
     Pool.join()
