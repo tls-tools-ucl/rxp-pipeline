@@ -42,7 +42,8 @@ if __name__ == "__main__":
     m = multiprocessing.Manager()
     args.Lock = m.Lock()
     pool = multiprocessing.Pool(args.num_prcs)
-    pool.starmap_async(downsample, [(ply, args) for ply in glob.glob(os.path.join(args.idir, '*.ply'))])
+    # starmap (not starmap_async) so that an error in any tile is raised instead of being lost
+    pool.starmap(downsample, [(ply, args) for ply in glob.glob(os.path.join(args.idir, '*.ply'))])
     pool.close()
     pool.join() 
 
